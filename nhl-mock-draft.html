@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026 NHL Mock Draft</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// Data will be loaded from players.json
+let LOTTERY_TEAMS = [];
+let PLAYOFF_TEAMS = [];
+
+function getDefaultOrder(){
+  const o=[];
+  const n={6:"via FLA",10:"via CHI",14:"via TOR"};
+  LOTTERY_TEAMS.forEach((t,i)=>{
+    o.push({pick:i+1,team:t.team,name:t.name,color:t.color,note:t.seed===15?"FORFEITED":(n[t.seed]||""),seed:t.seed,lotteryWin:false,jumped:0});
+  });
+  PLAYOFF_TEAMS.forEach((t,i)=>{
+    o.push({pick:i+17,team:t.team,name:t.name,color:t.color,note:t.note,seed:null,lotteryWin:false,jumped:0});
+  });
+  return o;
+}
+
+function simulateLottery(){
+  const pool=LOTTERY_TEAMS.map(t=>({...t}));
+  const eligible=pool.filter(t=>t.seed<=11); // only seeds 1-11 can win
+  const n={6:"via FLA",10:"via CHI",14:"via TOR"};
+
+  // Drawing 1: use base odds for seeds 1-11
+  const tot1=eligible.reduce((s,t)=>s+t.odds,0);
+  let r1=Math.random()*tot1, w1=eligible[0];
+  for(const t of eligible){r1-=t.odds;if(r1<=0){w1=t;break;}}
+
+  // Drawing 2: remove winner, redistribute odds proportionally among remaining 10
+  const elig2=eligible.filter(t=>t.seed!==w1.seed);
+  const tot2=elig2.reduce((s,t)=>s+t.odds,0);
+  let r2=Math.random()*tot2, w2=elig2[0];
+  for(const t of elig2){r2-=t.odds;if(r2<=0){w2=t;break;}}
+
+  // Build final order: winners get picks 1 & 2, rest fill in by seed
+  const nonWinners=pool.filter(t=>t.seed!==w1.seed&&t.seed!==w2.seed);
+  const res=[];
+  res.push({pick:1,team:w1.team,name:w1.name,color:w1.color,note:w1.seed===15?"FORFEITED":(n[w1.seed]||""),seed:w1.seed,lotteryWin:true,jumped:w1.seed-1});
+  res.push({pick:2,team:w2.team,name:w2.name,color:w2.color,note:w2.seed===15?"FORFEITED":(n[w2.seed]||""),seed:w2.seed,lotteryWin:true,jumped:Math.max(0,w2.seed-2)});
+  nonWinners.forEach((t,i)=>{res.push({pick:i+3,team:t.team,name:t.name,color:t.color,note:t.seed===15?"FORFEITED":(n[t.seed]||""),seed:t.seed,lotteryWin:false,jumped:0});});
+  PLAYOFF_TEAMS.forEach((t,i)=>{res.push({pick:i+17,team:t.team,name:t.name,color:t.color,note:t.note,seed:null,lotteryWin:false,jumped:0});});
+  return res;
+}
+
+// Prospects loaded from players.json
+let P=[
+  // TIER 1 — Consensus top 3
+  {id:1,name:"Ivar Stenberg",pos:"LW/RW",team:"Frölunda HC",lg:"SHL",nat:"🇸🇪",tier:1},
+  {id:2,name:"Gavin McKenna",pos:"LW",team:"Penn State",lg:"NCAA",nat:"🇨🇦",tier:1},
+  {id:3,name:"Keaton Verhoeff",pos:"RD",team:"North Dakota",lg:"NCAA",nat:"🇨🇦",tier:1},
+  // TIER 2 — Consensus top 25
+  {id:4,name:"Tynan Lawrence",pos:"C",team:"Boston University",lg:"NCAA",nat:"🇨🇦",tier:2},
+  {id:5,name:"Chase Reid",pos:"LD",team:"Soo Greyhounds",lg:"OHL",nat:"🇺🇸",tier:2},
+  {id:6,name:"Alberts Šmits",pos:"LD",team:"Jukurit",lg:"Liiga",nat:"🇱🇻",tier:2},
+  {id:7,name:"Caleb Malhotra",pos:"C",team:"Brantford",lg:"OHL",nat:"🇨🇦",tier:2},
+  {id:8,name:"Carson Carels",pos:"LD",team:"Prince George",lg:"WHL",nat:"🇨🇦",tier:2},
+  {id:9,name:"Ethan Belchetz",pos:"LW",team:"Windsor",lg:"OHL",nat:"🇨🇦",tier:2},
+  {id:10,name:"Viggo Björck",pos:"C/RW",team:"Djurgårdens IF",lg:"SHL",nat:"🇸🇪",tier:2},
+  {id:11,name:"Ryan Lin",pos:"RD",team:"Vancouver Giants",lg:"WHL",nat:"🇨🇦",tier:2},
+  {id:12,name:"Daxon Rudolph",pos:"RD",team:"Prince Albert",lg:"WHL",nat:"🇨🇦",tier:2},
+  {id:13,name:"Oscar Hemming",pos:"LW",team:"Boston College",lg:"NCAA",nat:"🇫🇮",tier:2},
+  {id:14,name:"Adam Novotný",pos:"LW/RW",team:"Peterborough",lg:"OHL",nat:"🇨🇿",tier:2},
+  {id:15,name:"JP Hurlbert",pos:"C/RW",team:"Kamloops",lg:"WHL",nat:"🇺🇸",tier:2},
+  {id:16,name:"Oliver Suvanto",pos:"C",team:"Tappara",lg:"Liiga",nat:"🇫🇮",tier:2},
+  {id:17,name:"Marcus Nordmark",pos:"RW",team:"Djurgårdens IF",lg:"J20",nat:"🇸🇪",tier:2},
+  {id:18,name:"Xavier Villeneuve",pos:"LD",team:"Blainville-Boisbriand",lg:"QMJHL",nat:"🇨🇦",tier:2},
+  {id:19,name:"Elton Hermansson",pos:"RW/LW",team:"MoDo Hockey",lg:"HA",nat:"🇸🇪",tier:2},
+  {id:20,name:"Malte Gustafsson",pos:"LD",team:"HV71",lg:"SHL",nat:"🇸🇪",tier:2},
+  {id:21,name:"Juho Piiparinen",pos:"RD",team:"Tappara",lg:"Liiga",nat:"🇫🇮",tier:2},
+  {id:22,name:"Mathis Preston",pos:"RW",team:"Spokane",lg:"WHL",nat:"🇨🇦",tier:2},
+  {id:23,name:"Ilya Morozov",pos:"C",team:"Miami (Ohio)",lg:"NCAA",nat:"🇷🇺",tier:2},
+  {id:24,name:"Nikita Klepov",pos:"RW",team:"Saginaw",lg:"OHL",nat:"🇷🇺",tier:2},
+  {id:25,name:"Alexander Command",pos:"C",team:"Örebro J20",lg:"J20",nat:"🇸🇪",tier:2},
+  // TIER 3 — Late first / second round range
+  {id:26,name:"Wyatt Cullen",pos:"LW",team:"USDP",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:27,name:"Jaxon Cover",pos:"LW",team:"London Knights",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:28,name:"William Håkansson",pos:"LD",team:"Luleå HF",lg:"SHL",nat:"🇸🇪",tier:3},
+  {id:29,name:"Giorgos Pantelas",pos:"RD",team:"Brandon",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:30,name:"Maddox Dagenais",pos:"C",team:"Quebec",lg:"QMJHL",nat:"🇨🇦",tier:3},
+  {id:31,name:"Brooks Rogowski",pos:"C",team:"Oshawa",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:32,name:"Nikita Di Iorio",pos:"C",team:"London Knights",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:33,name:"Tobias Trejbal",pos:"G",team:"Youngstown",lg:"USHL",nat:"🇨🇿",tier:3},
+  {id:34,name:"Adam Valentini",pos:"F",team:"Michigan",lg:"NCAA",nat:"🇨🇦",tier:3},
+  {id:35,name:"Casey Mutryn",pos:"F",team:"USDP",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:36,name:"Vertti Svensk",pos:"C",team:"TPS",lg:"Liiga",nat:"🇫🇮",tier:3},
+  {id:37,name:"Ryan Roobroeck",pos:"RW",team:"Saginaw",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:38,name:"Beckham Edwards",pos:"RW",team:"Kamloops",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:39,name:"Noel Nordh",pos:"LW",team:"Brynäs J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:40,name:"Linus Eriksson",pos:"LD",team:"Färjestad J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:41,name:"Lucas Pettersson",pos:"C",team:"Färjestad J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:42,name:"Ondřej Kos",pos:"C",team:"Pardubice Jr.",lg:"CZE Jr.",nat:"🇨🇿",tier:3},
+  {id:43,name:"Rasmus Larsson",pos:"LD",team:"Rögle J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:44,name:"Adam Dach",pos:"C",team:"Lethbridge",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:45,name:"Colton Jacobsen",pos:"RD",team:"Regina",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:46,name:"Simon Simontaival",pos:"LW",team:"Ilves",lg:"Liiga",nat:"🇫🇮",tier:3},
+  {id:47,name:"Émile Guité",pos:"C",team:"Rimouski",lg:"QMJHL",nat:"🇨🇦",tier:3},
+  {id:48,name:"Jack Ivankovic",pos:"G",team:"Brampton",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:49,name:"Egor Katsevich",pos:"LD",team:"Dynamo Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:50,name:"Kirill Zarubin",pos:"G",team:"Magnitogorsk Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:51,name:"Kasper Pikkarainen",pos:"RW",team:"KalPa",lg:"Liiga",nat:"🇫🇮",tier:3},
+  {id:52,name:"Maxim Strbak",pos:"RD",team:"Sioux City",lg:"USHL",nat:"🇸🇰",tier:3},
+  {id:53,name:"Ben Fenton",pos:"RW",team:"Sioux Falls",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:54,name:"Aidan Park",pos:"C",team:"Chicago Steel",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:55,name:"Lleyton Moore",pos:"LD",team:"Oshawa",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:56,name:"Mathieu St-Cyr",pos:"C",team:"Sherbrooke",lg:"QMJHL",nat:"🇨🇦",tier:3},
+  {id:57,name:"Brady Berard",pos:"LD",team:"U.S. NTDP",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:58,name:"Matvei Gridin",pos:"RW",team:"CSKA Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:59,name:"Hugo Pettersson",pos:"RD",team:"Örebro J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:60,name:"Filip Ekberg",pos:"RD",team:"Växjö J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:61,name:"Braeden Cootes",pos:"C",team:"Seattle T-Birds",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:62,name:"Noah Powell",pos:"RW",team:"Everett",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:63,name:"Ivan Ryabkin",pos:"RW",team:"SKA Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:64,name:"Marcus Gidlöf",pos:"G",team:"Leksands J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:65,name:"Nikita Artamonov",pos:"LW",team:"Yaroslavl Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:66,name:"Dmitry Simashev",pos:"LD",team:"Lokomotiv Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:67,name:"Ryder Betzold",pos:"RW",team:"St. John",lg:"QMJHL",nat:"🇨🇦",tier:3},
+  {id:68,name:"Tyler Schmidt",pos:"C",team:"Portland",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:69,name:"Carson Wetsch",pos:"RW",team:"Red Deer",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:70,name:"Luke Mailloux",pos:"LD",team:"Portland",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:71,name:"Axel Hurtig",pos:"LD",team:"Skellefteå J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:72,name:"Hudson Thornton",pos:"RD",team:"Moose Jaw",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:73,name:"Sawyer Mynio",pos:"LD",team:"Seattle T-Birds",lg:"WHL",nat:"🇺🇸",tier:3},
+  {id:74,name:"Jack Buczkowski",pos:"C",team:"Kitchener",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:75,name:"Ethan Procyszyn",pos:"C",team:"North Bay",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:76,name:"Stian Solberg",pos:"LD",team:"Vålerenga",lg:"Norway",nat:"🇳🇴",tier:3},
+  {id:77,name:"Lucas Beckman",pos:"LW",team:"Luleå J20",lg:"J20",nat:"🇸🇪",tier:3},
+  {id:78,name:"Rowan Fenton",pos:"LW",team:"Waterloo",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:79,name:"Niklas Kokko",pos:"G",team:"JYP",lg:"Liiga",nat:"🇫🇮",tier:3},
+  {id:80,name:"Caleb Watts",pos:"RW",team:"Tri-City",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:81,name:"Cole Reschny",pos:"C",team:"Victoria",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:82,name:"Tanner Howe",pos:"C",team:"Regina",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:83,name:"Travis Cross",pos:"RD",team:"Brandon",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:84,name:"Charlie Elick",pos:"RD",team:"Brandon",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:85,name:"Liam Greentree",pos:"RW",team:"Windsor",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:86,name:"Pavel Moysevich",pos:"G",team:"SKA Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:87,name:"Jonathan Morello",pos:"RW",team:"Sudbury",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:88,name:"Rian Chudzinski",pos:"RW",team:"Moncton",lg:"QMJHL",nat:"🇨🇦",tier:3},
+  {id:89,name:"Maxim Sushko",pos:"C",team:"Torpedo Jr.",lg:"MHL",nat:"🇷🇺",tier:3},
+  {id:90,name:"Jack Parsons",pos:"C",team:"Owen Sound",lg:"OHL",nat:"🇨🇦",tier:3},
+  {id:91,name:"Lukas Dragicevic",pos:"RD",team:"Tri-City",lg:"WHL",nat:"🇨🇦",tier:3},
+  {id:92,name:"Antonio Fernandez",pos:"LW",team:"Acadie-Bathurst",lg:"QMJHL",nat:"🇨🇦",tier:3},
+  {id:93,name:"Veeti Piiparinen",pos:"RD",team:"SaiPa",lg:"Liiga",nat:"🇫🇮",tier:3},
+  {id:94,name:"Samuel Honzek",pos:"LW",team:"Vancouver Giants",lg:"WHL",nat:"🇸🇰",tier:3},
+  {id:95,name:"Tanner Adams",pos:"C",team:"Chicago Steel",lg:"USHL",nat:"🇺🇸",tier:3},
+  {id:96,name:"Yegor Shilov",pos:"C",team:"Victoriaville",lg:"QMJHL",nat:"🇷🇺",tier:3},
+];
+
+// Scouting data — loaded from players.json
+let PINFO={
+1:{ht:"6'0\"",wt:181,born:"Sep 2007",str:["Full-ice offense","Quick decisions","Transition play","Drive to net"],wk:["Lateral game","Finesse in tight"],proj:"Top-line winger, core play-driver",comp:"William Nylander / Jesper Bratt",note:"On pace for best U19 SHL season since Daniel Sedin. Gold medal at WJC with Sweden. Elite two-way impact, nearly a point per game against men."},
+2:{ht:"6'0\"",wt:170,born:"Dec 2007",str:["Stickhandling","Vision","Finishing ability","Playmaking"],wk:["Defensive engagement","Size","Off-puck play"],proj:"Top-line wing, star scorer",comp:"Artemi Panarin / Patrick Kane",note:"Bedard's cousin. 129pts in WHL last year. NCAA route developing his all-around game. Highest skill ceiling in the draft. Dominant puck possession."},
+3:{ht:"6'4\"",wt:212,born:"Jun 2008",str:["Size","Poise under pressure","Offensive creativity","Shot"],wk:["Gap closing in transition","Over-confidence"],proj:"Top-pair defender, well-rounded scorer",comp:"Victor Hedman / Brent Burns",note:"Mobile 6'4\" RHD thriving in NCAA. High panic threshold, poise beyond his years. Some scouts think he's NHL-ready. Best defenseman in the class."},
+4:{ht:"6'0\"",wt:185,born:"Aug 2008",str:["Vision","Two-way play","Battle winning","Entries"],wk:["Forechecking consistency"],proj:"Top-line center, two-way star",comp:"Sebastian Aho / Nick Suzuki",note:"Best center in the draft. Dominated USHL before moving to BU. Captain-caliber, shift-dominant. Injuries limited games but talent is undeniable."},
+5:{ht:"6'2\"",wt:187,born:"Dec 2007",str:["Play-driving","Puck distribution","Defensive awareness","Grit"],wk:["Forces plays","Perimeter tendencies"],proj:"Fringe top-pair D, high-motor scorer",comp:"Duncan Keith / Brandon Montour",note:"Outstanding OHL production from the blue line. Slows the game down when needed. Elevates play against tough competition. In the running for first D taken."},
+6:{ht:"6'3\"",wt:205,born:"Dec 2007",str:["Play-driving","Blue-line offense","Stickhandling","Size"],wk:["Lateral defense","Zone coverage"],proj:"Top-four D, offensive upside",comp:"Jakob Chychrun / John Klingberg",note:"Playing 20 min/night in Liiga as an 18-year-old. Youngest player at the Olympics for Latvia. Strong WJC showing. Elite skating for his size."},
+7:{ht:"6'2\"",wt:183,born:"Jun 2008",str:["Hockey IQ","Playmaking","Two-way game","Physicality"],wk:["First-line ceiling questions"],proj:"Top-six center, smart two-way player",comp:"Mikael Granlund",note:"Competing for OHL scoring title. Tremendous improvement as offensive play-driver. Waits out opponents before making last-second passes into scoring lanes."},
+8:{ht:"6'2\"",wt:194,born:"Jun 2008",str:["Defensive awareness","Two-way play","Hockey sense","Physicality"],wk:["Shot velocity","Offensive-zone creativity"],proj:"High-end second pair, shutdown D",comp:"Ryan McDonagh / Jaccob Slavin",note:"Made Team Canada as a true underager. Dominates neutral zone with active stick. Tons of growth ahead. Mature beyond his years."},
+9:{ht:"6'5\"",wt:227,born:"Mar 2008",str:["Size","Finishing","Mobility for size","Entries"],wk:["Skating efficiency","Play-driving"],proj:"Top-six winger, scoring power forward",comp:"Aliaksei Protas",note:"Massive winger at 6'5\" 227lbs with legit scoring touch. 30 goals in OHL. Slightly cooled off mid-season but the size-skill combo is rare. Wrecking ball potential."},
+10:{ht:"5'10\"",wt:172,born:"Mar 2008",str:["Hockey IQ","Deceptive shot","Motor","Fearlessness"],wk:["Size","Control through contact"],proj:"Top-six winger, high-ceiling scorer",comp:"Brayden Point / Daniel Briere",note:"Playing 19 min/night in the SHL. Off-the-charts hockey sense. Strong WJC for Sweden. Outsmarting and outskilling opponents consistently despite small frame."},
+11:{ht:"5'11\"",wt:176,born:"Apr 2008",str:["Skating","Intelligence","Full-ice impact","Passing"],wk:["Size","Physical strength"],proj:"Second-pair D, play-driver",comp:"Lane Hutson / Shayne Gostisbehere",note:"Playing 26 min/night in WHL. Rarely makes a bad pass. Always bet on talent with smaller defensemen. Fantastic production and IQ."},
+12:{ht:"6'2\"",wt:203,born:"Mar 2008",str:["Shot","Physicality","Offensive instincts","Compete level"],wk:["Explosiveness","Lateral quickness"],proj:"Second-pair D, routine offensive contributor",comp:"Darnell Nurse",note:"One of the hottest D-men recently — 16 pts in 10 games. Tons of shots, hits everything in sight. Raiders are a top CHL team partly because of him."},
+13:{ht:"6'4\"",wt:198,born:"Aug 2008",str:["Size","Work ethic","Power forward game","Grit"],wk:["Offensive creativity","Production still developing"],proj:"Second-line wing, hard-nosed scorer",comp:"Valeri Nichushkin / Ilya Mikheyev",note:"Joined BC mid-season after Finnish contract dispute. Already impactful away from the puck. 6'4\" power forward who commands the ice. Eye test is impressive."},
+14:{ht:"6'1\"",wt:205,born:"Nov 2007",str:["Puck protection","Frame","Mobility","Shot volume"],wk:["Takeover ability","Versatility"],proj:"Second-line wing, main play-driver",comp:"Brandon Saad / Alex Steen",note:"Dominant at OHL Top Prospects Game. 4+ shots on net per game. Getting better at using his rugged frame to win battles. Lethal in close."},
+15:{ht:"6'0\"",wt:183,born:"Apr 2008",str:["One-touch shot","Playmaking","Production","IQ"],wk:["Off-puck play","Speed"],proj:"Top-six scorer, PP specialist",comp:"Phil Kessel",note:"CHL's most productive forward most of the season. Michigan commit. Sure bet to crack 100 points in WHL. Skating can be fixed — bet on skill."},
+16:{ht:"6'3\"",wt:209,born:"Sep 2008",str:["Two-way game","Size","Defensive reliability","Versatility"],wk:["Offensive creativity","Lateral skating"],proj:"Middle-six center, PK specialist",comp:"Mikko Koivu / Tomas Hertl",note:"Playing against men in Liiga all season. Sound and reliable defensively. Smooth board-to-board style. May not have elite offensive upside but very safe pick."},
+17:{ht:"6'2\"",wt:187,born:"May 2008",str:["Shooting","Drive to net","Board control","Wrist shot"],wk:["Off-puck engagement","SHL production"],proj:"Top-six winger, go-to play-driver",comp:"Adrian Kempe / Ivan Barbashev",note:"Nearly 2 PPG with Sweden U18. Dominant in J20 league. Everyone notices when the puck is on his stick. SHL opportunity still developing."},
+18:{ht:"5'11\"",wt:157,born:"Sep 2007",str:["Mobility","Creativity","Blue-line offense","PP quarterback"],wk:["Size","Physicality","One-on-one defense"],proj:"Sheltered second pair, high scoring upside",comp:"Samuel Girard",note:"Dynamic puck-moving D, absolute monster on the power play. Three-year QMJHL producer. Questions about how much his game has truly grown this season."},
+19:{ht:"6'1\"",wt:181,born:"Feb 2008",str:["Speed","Transition play","Forechecking","Quick decisions"],wk:["Defensive engagement","Physical strength"],proj:"Reliable second-line pursuit winger",comp:"Jaden Schwartz / J.T. Compher",note:"Overwhelms opponents and forces turnovers. Great playmaker in tight areas. Dominant internationally. One-timer is a threat on the PP."},
+20:{ht:"6'4\"",wt:201,born:"Jun 2008",str:["Size","Skating for size","Movement","Board play"],wk:["Puck handling under pressure"],proj:"Third-pair D, minute-munching presence",comp:"Mikhail Sergachev / Hampus Lindholm",note:"6'4\" defender already getting SHL and PP time. Never stops moving in D-zone. Willing to suffocate opponents along boards. Very interesting development curve."},
+21:{ht:"6'3\"",wt:203,born:"Aug 2008",str:["Size","Skating","Physicality","Active stick"],wk:["Offensive production","Play-driving"],proj:"Top-four shutdown defender",comp:"Esa Lindell / Adam Pelech",note:"Almost 2027-eligible, incredibly young for class. Playing in Liiga against grown men despite age. Fast straight-line skater with elite edge work. Big upside runway."},
+22:{ht:"5'11\"",wt:176,born:"Jul 2008",str:["Pursuit","Speed","Finesse","Perimeter playmaking"],wk:["Size","Interior playmaking","Defense"],proj:"Sheltered second-line winger",comp:"Conor Garland / Kris Versteeg",note:"Transferred to Spokane. Extremely persistent, plays above his size. Flashy on the puck. Needs a change of scenery to find consistency and urgency."},
+23:{ht:"6'3\"",wt:195,born:"Aug 2008",str:["Size","Offensive IQ","NCAA impact","Play-driving"],wk:["Physicality","Forechecking"],proj:"Middle-six center, finesse playmaker",comp:"Pierre-Luc Dubois",note:"Youngest player in NCAA and already a #1 on offense. Major surprise of the season. The momentum behind his development is exciting."},
+24:{ht:"6'0\"",wt:180,born:"Jun 2008",str:["Skill","Goal scoring","Dynamic offense","Creativity"],wk:["Size","Defensive consistency"],proj:"Top-six scoring winger",comp:"Nikita Kucherov (lite)",note:"Sub-6' wingers can drop on draft day but the skill is undeniable. 28 goals in OHL with great hands. Dynamic offensive talent."},
+25:{ht:"6'1\"",wt:185,born:"Jun 2008",str:["Competitiveness","Speed","Center-ice play","Two-way"],wk:["Production at top level","Shot"],proj:"Middle-six center",comp:"Lars Eller",note:"Terrific for Sweden internationally and in J20. Competitive and fast-paced game from center. A climber on boards this season."},
+26:{ht:"5'11\"",wt:175,born:"Sep 2008",str:["Net-front","Loose puck play","Skating","Quick release"],wk:["Size","Consistency"],proj:"Middle-six forward",comp:"Matt Cullen (son)",note:"Son of former NHLer Matt Cullen. USA's top player at CHL Prospects Challenge and All-American game. Excellent skater who capitalizes on loose pucks."},
+27:{ht:"6'2\"",wt:175,born:"Feb 2008",str:["Size","Compete level","Physical play","Shooting"],wk:["Skating","Offensive polish"],proj:"Middle-six power winger",comp:"N/A",note:"London Knights forward with good size and a physical edge. Developing offensive game showing improvement."},
+28:{ht:"6'4\"",wt:205,born:"Oct 2007",str:["Mobility","Power","Square skating","Entry defense"],wk:["Handling under pressure","Body checking"],proj:"Fringe top-pair D, reliable defender",comp:"Mikhail Sergachev / Hampus Lindholm",note:"Plays heavy and strong in the SHL. Great lateral movement. Makes plays off the blue line. Reliable frame. A favorite among scouts."},
+29:{ht:"6'2\"",wt:215,born:"Apr 2008",str:["Physicality","Defensive structure","Compete level"],wk:["Offensive upside","Skating"],proj:"Bottom-four D, physical presence",comp:"N/A",note:"Physical defensive defenseman in the WHL. Brings structure and compete every shift."},
+30:{ht:"6'3\"",wt:195,born:"Mar 2008",str:["Size","Skill","Physical gifts","Shot"],wk:["Consistency","Confidence"],proj:"Middle-six center with upside",comp:"N/A",note:"Former 1st overall QMJHL pick finally putting it together for Quebec. Becoming more confident utilizing his elite physical tools. Big climber."},
+31:{ht:"6'6\"",wt:225,born:"Jun 2008",str:["Size","Reach","Playmaking","Vision"],wk:["Skating","Consistency"],proj:"Middle-six center, power playmaker",comp:"N/A",note:"Massive frame at 6'6\" with surprising playmaking touch for Oshawa."},
+32:{ht:"5'11\"",wt:172,born:"N/A",str:["Playmaking","Puck carrying","Quick release","IQ"],wk:["Size","Defensive play"],proj:"Middle-six center, offensive upside",comp:"N/A",note:"Driving play for the London Knights. Great at carrying through the middle of the ice. Safe bet for late first round."},
+33:{ht:"6'4\"",wt:195,born:"N/A",str:["Size","Athleticism","Positioning","Reflexes"],wk:["Consistency","Rebound control"],proj:"Starting NHL goaltender potential",comp:"N/A",note:"Highest-ranked goalie in the class. Outstanding in USHL. UMass commit. Size and athleticism combination is tantalizing."},
+34:{ht:"5'11\"",wt:185,born:"Apr 2008",str:["Intelligence","Skill","Even-strength play","Creativity"],wk:["Size","Physical strength"],proj:"Middle-six forward, smart playmaker",comp:"N/A",note:"Second-highest scoring draft-eligible freshman in NCAA behind McKenna. Held up well against older competition. High-end IQ."},
+35:{ht:"6'3\"",wt:201,born:"N/A",str:["Size","Skating","Compete level","Offensive tools"],wk:["Consistency","Decision-making"],proj:"Middle-six power forward",comp:"N/A",note:"USDP forward with impressive size-skill combination. Intriguing offensive tools."},
+36:{ht:"6'1\"",wt:185,born:"N/A",str:["Two-way play","Skating","Compete","Intelligence"],wk:["Production","Shot"],proj:"Bottom-six center with upside",comp:"N/A",note:"Reliable two-way center in Liiga. Does a lot of little things right."},
+37:{ht:"6'4\"",wt:220,born:"N/A",str:["Size","Goal scoring","Frame","Shot"],wk:["Competitiveness","Drive","Consistency"],proj:"Top-six potential if engaged",comp:"N/A",note:"Had incredible numbers last year (41G, 87pts OHL) but production and effort have fallen off. The size-skill package is undeniable if he puts it together."},
+38:{ht:"6'1\"",wt:190,born:"N/A",str:["Power skating","Goal scoring","Physical play"],wk:["Offensive consistency","Ceiling concerns"],proj:"Bottom-six scorer",comp:"N/A",note:"Power skating forward with a goal scorer's touch but consistency has been lacking this season."},
+};
+
+const GC=[
+  {id:0,name:"Jason",color:"#e63946",accent:"#c1121f",bg:"rgba(230,57,70,0.06)",hdr:"linear-gradient(135deg,#e63946,#c1121f)"},
+];
+const TC={1:"#b8860b",2:"#2563eb",3:"#999"};
+const TL={1:"ELITE",2:"TOP",3:""};
+const PF=["ALL","C","LW","RW","LD","RD","G","F"];
+const FULL_NAMES={VAN:"Vancouver Canucks",STL:"St. Louis Blues",NYR:"New York Rangers",CGY:"Calgary Flames",WPG:"Winnipeg Jets",CHI:"Chicago Blackhawks",NJD:"New Jersey Devils",NSH:"Nashville Predators",SJS:"San Jose Sharks",FLA:"Florida Panthers",LAK:"Los Angeles Kings",PHI:"Philadelphia Flyers",WSH:"Washington Capitals",UTA:"Utah Mammoth",OTT:"Ottawa Senators",CBJ:"Columbus Blue Jackets",ANA:"Anaheim Ducks",SEA:"Seattle Kraken",NYI:"New York Islanders",BOS:"Boston Bruins",BUF:"Buffalo Sabres",DET:"Detroit Red Wings",PIT:"Pittsburgh Penguins",MTL:"Montreal Canadiens",TBL:"Tampa Bay Lightning",DAL:"Dallas Stars",COL:"Colorado Avalanche",CAR:"Carolina Hurricanes",VGK:"Vegas Golden Knights",EDM:"Edmonton Oilers",TOR:"Toronto Maple Leafs",MIN:"Minnesota Wild"};
+let LAST_UPDATED = "Loading...";
+const logoUrl=(abbr)=>`https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`;
+
+// === DATA LOADING FROM players.json ===
+async function loadPlayersData() {
+  const res = await fetch('players.json?cb=' + Date.now());
+  if (!res.ok) throw new Error('Failed to load players.json');
+  const data = await res.json();
+  // Overwrite module-level variables
+  LOTTERY_TEAMS.length = 0;
+  data.lottery_teams.forEach(t => LOTTERY_TEAMS.push(t));
+  PLAYOFF_TEAMS.length = 0;
+  data.playoff_teams.forEach(t => PLAYOFF_TEAMS.push(t));
+  P.length = 0;
+  data.prospects.forEach(p => P.push(p));
+  // Rebuild PINFO
+  Object.keys(PINFO).forEach(k => delete PINFO[k]);
+  Object.assign(PINFO, data.prospect_info);
+  LAST_UPDATED = data.last_updated || "Unknown";
+}
+
+// === PERSISTENT STORAGE ===
+const STORAGE_KEY = "nhl-mock-draft-state";
+
+async function saveState(state) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; }
+  catch (e) { return false; }
+}
+
+async function loadState() {
+  try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
+  catch (e) { return null; }
+}
+
+async function clearSavedState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+}
+
+function LotteryModal({onComplete,onClose}){
+  const[stage,setStage]=useState("ready");
+  const[fo,setFo]=useState(null);
+  const[revealedPicks,setRevealedPicks]=useState([]);
+  const[currentPick,setCurrentPick]=useState(null);
+  const[announcing,setAnnouncing]=useState(false);
+  const tr=useRef();
+  const cancelled=useRef(false);
+  const speak=(text)=>new Promise(resolve=>{try{window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=0.88;u.pitch=0.9;u.volume=1;u.onend=resolve;u.onerror=resolve;window.speechSynthesis.speak(u);}catch(e){resolve();}});
+
+  const revealSequence=async(results)=>{
+    const lottery16=results.slice(0,16);
+    cancelled.current=false;
+    for(let i=15;i>=0;i--){
+      if(cancelled.current) return;
+      const pick=lottery16[i];
+      const pickNum=i+1;
+      const fullName=FULL_NAMES[pick.team]||pick.name;
+      setCurrentPick({...pick,pickNum});
+      setAnnouncing(true);
+      if(pickNum<=5){
+        await speak(`The number ${pickNum} overall pick goes to... the ${fullName}`);
+      } else {
+        await speak(`Pick number ${pickNum}... the ${fullName}`);
+      }
+      if(cancelled.current) return;
+      setAnnouncing(false);
+      setRevealedPicks(prev=>[{...pick,pickNum},...prev]);
+      setCurrentPick(null);
+      await new Promise(r=>setTimeout(r,pickNum<=3?1200:pickNum<=5?800:400));
+    }
+    setStage("done");
+  };
+
+  const run=()=>{
+    const res=simulateLottery();
+    setFo(res);
+    setRevealedPicks([]);
+    setCurrentPick(null);
+    setStage("revealing");
+    revealSequence(res);
+  };
+
+  const quickSim=()=>{
+    const res=simulateLottery();
+    setFo(res);
+    setRevealedPicks([]);
+    setCurrentPick(null);
+    setStage("done");
+  };
+
+  const skipReveal=()=>{
+    cancelled.current=true;
+    try{window.speechSynthesis.cancel();}catch(e){}
+    setCurrentPick(null);
+    setRevealedPicks([]);
+    setStage("done");
+  };
+
+  const cleanup=()=>{cancelled.current=true;clearInterval(tr.current);try{window.speechSynthesis.cancel();}catch(e){}};
+  useEffect(()=>()=>cleanup(),[]);
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:100,background:"rgba(0,0,0,0.4)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"#fff",border:"1px solid #ddd",borderRadius:12,padding:"32px 40px",maxWidth:640,width:"94%",textAlign:"center",fontFamily:"'Courier New',monospace",color:"#1a1a1a",position:"relative",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.15)"}}>
+        <button onClick={()=>{cleanup();onClose();}} style={{position:"absolute",top:10,right:14,background:"none",border:"none",color:"#aaa",fontSize:26,cursor:"pointer",zIndex:2}}>✕</button>
+        <div style={{letterSpacing:4,fontSize:15,color:"#999",marginBottom:4}}>2026 NHL</div>
+        <h2 style={{fontSize:34,fontWeight:900,margin:"0 0 6px",background:"linear-gradient(135deg,#b8860b,#e65100)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>DRAFT LOTTERY</h2>
+        <p style={{color:"#888",fontSize:15,marginBottom:18,letterSpacing:1}}>TWO DRAWINGS · MAX 10-SPOT JUMP · TANKATHON ODDS</p>
+
+        {stage==="ready"&&<>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16,maxHeight:180,overflowY:"auto"}}>
+            {LOTTERY_TEAMS.filter(t=>t.odds>0).map(t=>(
+              <div key={t.seed} style={{background:"#f8f8f8",border:"1px solid #e0e0e0",borderRadius:4,padding:"8px 6px",textAlign:"center"}}>
+                <div style={{fontSize:16,fontWeight:700,color:t.color}}>{t.team}</div>
+                <div style={{fontSize:13,color:"#999"}}>Seed {t.seed}</div>
+                <div style={{fontSize:18,fontWeight:800,color:"#b8860b"}}>{t.odds}%</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={run} style={{background:"linear-gradient(135deg,#b8860b,#e65100)",border:"none",borderRadius:6,color:"#fff",padding:"14px 32px",fontSize:18,fontWeight:900,cursor:"pointer",fontFamily:"inherit",letterSpacing:2}}>🎱 SIM LOTTERY</button>
+          <button onClick={quickSim} style={{background:"#f0f0f0",border:"1px solid #ccc",borderRadius:6,color:"#666",padding:"14px 20px",marginLeft:8,fontSize:16,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>⚡ QUICK SIM</button>
+        </>}
+
+        {stage==="revealing"&&<div>
+          {currentPick&&<div style={{marginBottom:16}}>
+            {announcing?<div style={{animation:"fadeIn 0.3s ease"}}>
+              <div style={{fontSize:17,color:"#b8860b",letterSpacing:2,marginBottom:10}}>PICK #{currentPick.pickNum}</div>
+              <div style={{width:100,height:100,margin:"0 auto 10px",borderRadius:"50%",border:"3px solid #b8860b",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 30px rgba(184,134,11,0.2)",animation:"pulse 0.8s infinite"}}>
+                <span style={{fontSize:36,color:"#b8860b"}}>?</span>
+              </div>
+              <div style={{fontSize:14,color:"#999",letterSpacing:2}}>🔊 LISTEN...</div>
+            </div>:<div style={{animation:"fadeIn 0.4s ease"}}>
+              <div style={{fontSize:17,color:"#888",letterSpacing:2,marginBottom:6}}>PICK #{currentPick.pickNum}</div>
+              <img src={logoUrl(currentPick.team)} alt={currentPick.team} style={{width:100,height:100,objectFit:"contain",margin:"6px auto",display:"block",filter:`drop-shadow(0 0 10px ${currentPick.color}44)`}} onError={e=>{e.target.style.display="none"}}/>
+              <div style={{fontSize:36,fontWeight:900,color:currentPick.color}}>{currentPick.team}</div>
+              <div style={{fontSize:16,color:"#666"}}>{FULL_NAMES[currentPick.team]||currentPick.name}</div>
+              {currentPick.lotteryWin&&<div style={{fontSize:15,color:"#b8860b",marginTop:3}}>🏆 LOTTERY WINNER — ▲ {currentPick.jumped} spot{currentPick.jumped>1?"s":""}</div>}
+            </div>}
+          </div>}
+          {revealedPicks.length>0&&<div style={{borderTop:"1px solid #eee",paddingTop:10,marginTop:8}}>
+            <div style={{fontSize:13,color:"#999",letterSpacing:2,marginBottom:6}}>REVEALED</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+              {revealedPicks.map(p=>(
+                <div key={p.pickNum} style={{background:p.lotteryWin?"rgba(184,134,11,0.06)":"#f8f8f8",border:`1px solid ${p.lotteryWin?"#b8860b33":"#e0e0e0"}`,borderRadius:3,padding:"6px 4px",textAlign:"center"}}>
+                  <div style={{fontSize:12,color:"#999"}}>#{p.pickNum}</div>
+                  <img src={logoUrl(p.team)} alt={p.team} style={{width:50,height:50,objectFit:"contain",margin:"1px auto",display:"block"}} onError={e=>{e.target.style.display="none"}}/>
+                  <div style={{fontSize:14,fontWeight:700,color:p.color}}>{p.team}</div>
+                  {p.lotteryWin&&<div style={{fontSize:11,color:"#b8860b"}}>🏆</div>}
+                </div>
+              ))}
+            </div>
+          </div>}
+          <button onClick={skipReveal} style={{background:"#f0f0f0",border:"1px solid #ccc",borderRadius:6,color:"#666",padding:"7px 16px",marginTop:12,fontSize:15,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>⏭ SKIP TO RESULTS</button>
+        </div>}
+
+        {stage==="done"&&fo&&<div style={{animation:"fadeIn 0.5s ease"}}>
+          <div style={{fontSize:15,color:"#888",letterSpacing:2,marginBottom:10}}>FINAL LOTTERY ORDER</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+            {fo.slice(0,16).map((p,i)=>(
+              <div key={i} style={{background:p.lotteryWin?"rgba(184,134,11,0.06)":"#f8f8f8",border:`1px solid ${p.lotteryWin?"#b8860b55":"#e0e0e0"}`,borderRadius:4,padding:"8px 6px",textAlign:"center"}}>
+                <div style={{fontSize:13,color:p.lotteryWin?"#b8860b":"#999",fontWeight:p.lotteryWin?800:400}}>#{i+1}{p.lotteryWin?" 🏆":""}</div>
+                <img src={logoUrl(p.team)} alt={p.team} style={{width:50,height:50,objectFit:"contain",margin:"3px auto",display:"block"}} onError={e=>{e.target.style.display="none"}}/>
+                <div style={{fontSize:15,fontWeight:700,color:p.color}}>{p.team}</div>
+                <div style={{fontSize:12,color:"#888"}}>{FULL_NAMES[p.team]?FULL_NAMES[p.team].split(" ").pop():p.name}</div>
+                {p.lotteryWin&&p.jumped>0&&<div style={{fontSize:12,color:"#b8860b"}}>▲{p.jumped}</div>}
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>onComplete(fo)} style={{background:"linear-gradient(135deg,#b8860b,#e65100)",border:"none",borderRadius:6,color:"#fff",padding:"12px 28px",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit",letterSpacing:2}}>✓ SET ORDER</button>
+          <button onClick={()=>{setStage("ready");setFo(null);setRevealedPicks([]);setCurrentPick(null);}} style={{background:"#f0f0f0",border:"1px solid #ccc",borderRadius:6,color:"#666",padding:"12px 20px",marginLeft:8,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>⟳ RE-SIM</button>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+function PlayerInfoModal({prospect,onClose,onDraft,canDraft}){
+  const info=PINFO[prospect.id];
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,0.35)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",padding:10}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",border:"1px solid #ddd",borderRadius:10,padding:"28px 32px",maxWidth:520,width:"100%",fontFamily:"'Courier New',monospace",color:"#1a1a1a",position:"relative",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 16px 48px rgba(0,0,0,0.12)"}}>
+        <button onClick={onClose} style={{position:"absolute",top:8,right:12,background:"none",border:"none",color:"#bbb",fontSize:22,cursor:"pointer"}}>✕</button>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <span style={{fontSize:26}}>{prospect.nat}</span>
+          <div>
+            <div style={{fontSize:26,fontWeight:900,color:"#111"}}>{prospect.name}</div>
+            <div style={{fontSize:15,color:"#888"}}>{prospect.pos} · {prospect.team} · {prospect.lg}</div>
+          </div>
+          {prospect.tier<=2&&<span style={{fontSize:13,color:TC[prospect.tier],fontWeight:700,background:TC[prospect.tier]+"15",padding:"4px 10px",borderRadius:3,marginLeft:"auto"}}>{TL[prospect.tier]}</span>}
+        </div>
+        {info?<>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:20,marginBottom:14}}>
+            {[["HEIGHT",info.ht],["WEIGHT",info.wt+"lbs"],["BORN",info.born]].map(([l,v])=>(
+              <div key={l} style={{background:"#f5f5f5",borderRadius:4,padding:"6px 8px",textAlign:"center"}}>
+                <div style={{fontSize:12,color:"#999",letterSpacing:1}}>{l}</div>
+                <div style={{fontSize:17,fontWeight:700,color:"#333"}}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:13,color:"#999",letterSpacing:1,marginBottom:4}}>PROJECTION</div>
+            <div style={{fontSize:16,color:"#b8860b",fontWeight:600}}>{info.proj}</div>
+          </div>
+          {info.comp&&info.comp!=="N/A"&&<div style={{marginBottom:12}}>
+            <div style={{fontSize:13,color:"#999",letterSpacing:1,marginBottom:4}}>NHL COMPARISON</div>
+            <div style={{fontSize:16,color:"#2563eb",fontWeight:600}}>{info.comp}</div>
+          </div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            <div>
+              <div style={{fontSize:13,color:"#16a34a",letterSpacing:1,marginBottom:4}}>STRENGTHS</div>
+              {info.str.map((s,i)=><div key={i} style={{fontSize:14,color:"#555",marginBottom:3}}>+ {s}</div>)}
+            </div>
+            <div>
+              <div style={{fontSize:13,color:"#dc2626",letterSpacing:1,marginBottom:4}}>WEAKNESSES</div>
+              {info.wk.map((w,i)=><div key={i} style={{fontSize:14,color:"#555",marginBottom:3}}>− {w}</div>)}
+            </div>
+          </div>
+          <div style={{borderTop:"1px solid #eee",paddingTop:10,marginBottom:canDraft?14:0}}>
+            <div style={{fontSize:13,color:"#999",letterSpacing:1,marginBottom:4}}>SCOUTING NOTES</div>
+            <div style={{fontSize:15,color:"#666",lineHeight:1.5}}>{info.note}</div>
+          </div>
+          <div style={{fontSize:12,color:"#ccc",marginTop:10,letterSpacing:1}}>Sources: Tankathon · Daily Faceoff · McKeen's · THN · Smaht Scouting · NHL Central Scouting</div>
+        </>:<div style={{color:"#aaa",fontSize:15,padding:"20px 0",textAlign:"center"}}>Detailed scouting data not yet available for this prospect.</div>}
+        {canDraft&&<button onClick={()=>{onDraft(prospect.id);onClose()}} style={{width:"100%",marginTop:14,padding:"14px 0",background:"linear-gradient(135deg,#e63946,#c1121f)",border:"none",borderRadius:6,color:"#fff",fontSize:18,fontWeight:900,letterSpacing:2,cursor:"pointer",fontFamily:"inherit",textTransform:"uppercase"}}>🏒 DRAFT {prospect.name.split(" ").pop()}</button>}
+      </div>
+    </div>
+  );
+}
+
+function GMPanel({gi,order,allPicks,onPick,onClear,activeGm}){
+  const cfg=GC[gi];
+  const isAuto=!!cfg.auto;
+  const isMe=activeGm===gi&&!isAuto;
+  const[ap,setAp]=useState(null);
+  const[sr,setSr]=useState("");
+  const[pf,setPf2]=useState("ALL");
+  const[viewPlayer,setViewPlayer]=useState(null);
+  const mp=allPicks[gi]||{};
+  const myIds=new Set(Object.values(mp));
+  const otherIds=new Set(Object.entries(allPicks).filter(([k])=>+k!==gi).flatMap(([,v])=>Object.values(v)));
+  const filled=Object.keys(mp).length;
+  const fp=P.filter(p=>{const s=sr.toLowerCase();return(p.name.toLowerCase().includes(s)||p.team.toLowerCase().includes(s)||p.lg.toLowerCase().includes(s))&&(pf==="ALL"||p.pos.includes(pf))});
+  const sel=(pid)=>{if(ap===null||!isMe)return;onPick(gi,ap,pid);const ci=order.findIndex(d=>d.pick===ap);const ne=order.find((d,i)=>i>ci&&!mp[d.pick]&&d.note!=="FORFEITED");setAp(ne?ne.pick:null)};
+  return(
+    <div style={{display:"flex",flexDirection:"column",background:"#fff",border:`1px solid ${isMe?"#ccc":"#e0e0e0"}`,borderRadius:8,overflow:"hidden",height:"100%",minWidth:0,boxShadow:isMe?`0 0 16px ${cfg.color}10`:"0 1px 3px rgba(0,0,0,0.06)"}}>
+      <div style={{background:cfg.hdr,padding:"14px 16px",position:"relative",flexShrink:0}}>
+        <div style={{position:"absolute",inset:0,opacity:0.06,backgroundImage:`repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,0.1) 8px,rgba(255,255,255,0.1) 9px)`}}/>
+        <div style={{position:"relative",zIndex:1,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:22,fontWeight:900,color:"#fff",letterSpacing:2,textTransform:"uppercase",textShadow:"0 1px 6px rgba(0,0,0,0.3)"}}>{cfg.name}</span>
+          {isAuto&&<span style={{fontSize:12,background:"rgba(255,255,255,0.2)",padding:"4px 10px",borderRadius:3,color:"#fff",letterSpacing:1}}>AUTO BPA</span>}
+          {isMe&&<span style={{fontSize:12,background:"rgba(255,255,255,0.2)",padding:"4px 10px",borderRadius:3,color:"#fff",letterSpacing:1}}>YOU</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",marginTop:3,position:"relative",zIndex:1}}>
+          <span style={{fontSize:13,color:"rgba(255,255,255,0.5)",letterSpacing:2}}>{filled}/32</span>
+          <div style={{height:4,flex:1,marginLeft:8,background:"rgba(0,0,0,0.3)",borderRadius:2,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${(filled/32)*100}%`,background:"rgba(255,255,255,0.6)",borderRadius:2,transition:"width 0.3s"}}/>
+          </div>
+        </div>
+      </div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+        <div style={{flex:ap&&isMe?"0 0 35%":1,overflowY:"auto",padding:"6px 8px",borderBottom:ap&&isMe?`2px solid ${cfg.color}`:"none"}}>
+          {order.map(slot=>{
+            const pr=mp[slot.pick]?P.find(p=>p.id===mp[slot.pick]):null;
+            const ff=slot.note==="FORFEITED";
+            const ia=ap===slot.pick&&isMe;
+            const teamFull=FULL_NAMES[slot.team]||slot.name;
+            return(
+              <div key={slot.pick} onClick={()=>{if(!ff&&isMe)setAp(ia?null:slot.pick)}}
+                style={{display:"flex",alignItems:"center",gap:20,padding:"8px 10px",marginBottom:3,borderRadius:4,
+                  cursor:!ff&&isMe?"pointer":"default",background:ff?"#fafafa":ia?cfg.bg:pr?"#f8f8f8":"#fff",
+                  border:`1px solid ${ia?cfg.color:"#eee"}`,opacity:ff?0.3:1,transition:"all 0.1s"}}>
+                <span style={{fontSize:14,color:"#aaa",width:24,textAlign:"right",flexShrink:0,fontWeight:700}}>{slot.pick}</span>
+                <img src={logoUrl(slot.team)} alt={slot.team} style={{width:32,height:42,objectFit:"contain",flexShrink:0}} onError={e=>{e.target.style.display="none"}}/>
+                <div style={{display:"flex",flexDirection:"column",flexShrink:0,minWidth:0,width:pr?130:170}}>
+                  <span style={{fontSize:14,fontWeight:800,color:slot.color,lineHeight:1.1}}>{slot.team}</span>
+                  <span style={{fontSize:12,color:"#999",lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{teamFull.split(" ").pop()}</span>
+                </div>
+                {slot.lotteryWin&&<span style={{fontSize:12,color:"#b8860b",flexShrink:0}}>★</span>}
+                {ff?<span style={{fontSize:12,color:"#bbb",fontStyle:"italic"}}>Forfeited</span>
+                :pr?<div style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span onClick={e=>{e.stopPropagation();setViewPlayer(pr)}} style={{fontSize:15,color:"#222",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer",borderBottom:"1px dotted #ccc"}}>{pr.nat} {pr.name}</span>
+                  <span style={{fontSize:12,color:"#999",flexShrink:0,marginLeft:4,background:"#f0f0f0",padding:"8px 16px",borderRadius:2,fontWeight:600}}>{pr.pos}</span>
+                </div>
+                :<span style={{fontSize:13,color:ia?cfg.accent:"#ddd",flex:1}}>{ia?"← Pick a prospect":"—"}</span>}
+                {slot.note&&slot.note!=="FORFEITED"&&<span style={{fontSize:11,color:"#bbb",flexShrink:0}}>({slot.note})</span>}
+                {pr&&!ff&&isMe&&<button onClick={e=>{e.stopPropagation();onClear(gi,slot.pick)}} style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:13,padding:"0 2px",flexShrink:0}}>✕</button>}
+              </div>
+            );
+          })}
+        </div>
+        {ap&&isMe&&<div style={{flex:"1 1 65%",display:"flex",flexDirection:"column",minHeight:0,background:"#fafafa"}}>
+          <div style={{padding:"4px 5px 2px",flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
+            <img src={logoUrl(order.find(d=>d.pick===ap)?.team)} alt="" style={{width:26,height:26,objectFit:"contain"}} onError={e=>{e.target.style.display="none"}}/>
+            <span style={{fontSize:14,color:cfg.accent,fontWeight:700,letterSpacing:1,flexShrink:0}}>#{ap} {FULL_NAMES[order.find(d=>d.pick===ap)?.team]||order.find(d=>d.pick===ap)?.team}</span>
+            <input value={sr} onChange={e=>setSr(e.target.value)} placeholder="Search..."
+              style={{flex:1,background:"#fff",border:"1px solid #ddd",borderRadius:3,color:"#333",padding:"3px 6px",fontSize:14,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+          </div>
+          <div style={{display:"flex",gap:4,padding:"2px 5px 3px",flexWrap:"wrap",flexShrink:0}}>
+            {PF.map(pos=><button key={pos} onClick={()=>setPf2(pos)} style={{background:pf===pos?cfg.color+"20":"#fff",border:`1px solid ${pf===pos?cfg.color+"55":"#ddd"}`,color:pf===pos?cfg.accent:"#888",padding:"8px 16px",borderRadius:2,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pos}</button>)}
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"0 5px 5px",display:"flex",flexDirection:"column",gap:2}}>
+            {fp.map(p=>{const tk=myIds.has(p.id)||otherIds.has(p.id);
+              return(<div key={p.id} onClick={()=>!tk&&setViewPlayer(p)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:3,background:tk?"#fafafa":"#fff",border:`1px solid ${tk?"#f0f0f0":"#e8e8e8"}`,cursor:tk?"default":"pointer",opacity:tk?0.3:1,transition:"all 0.1s"}}
+                onMouseEnter={e=>{if(!tk)e.currentTarget.style.borderColor=cfg.color+"66"}}
+                onMouseLeave={e=>{if(!tk)e.currentTarget.style.borderColor="#e8e8e8"}}>
+                {p.tier<=2?<span style={{fontSize:11,color:TC[p.tier],fontWeight:700,width:22,flexShrink:0}}>{TL[p.tier]}</span>:<span style={{width:22,flexShrink:0}}/>}
+                <span style={{fontSize:14}}>{p.nat}</span>
+                <span style={{fontSize:14,fontWeight:700,color:tk?"#bbb":"#222",flex:1,minWidth:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</span>
+                <span style={{fontSize:12,background:"#f0f0f0",padding:"4px 10px",borderRadius:2,color:"#777",fontWeight:600,flexShrink:0}}>{p.pos}</span>
+                <span style={{fontSize:12,color:"#bbb",flexShrink:0}}>{p.team}</span>
+              </div>);
+            })}
+          </div>
+        </div>}
+      </div>
+      {viewPlayer&&<PlayerInfoModal prospect={viewPlayer} onClose={()=>setViewPlayer(null)} canDraft={ap!==null&&isMe&&!myIds.has(viewPlayer.id)&&!otherIds.has(viewPlayer.id)} onDraft={(pid)=>{sel(pid)}}/>}
+    </div>
+  );
+}
+
+function App(){
+  const[order,setOrder]=useState(getDefaultOrder);
+  const[picks,setPicks]=useState({0:{}});
+  const[showLot,setShowLot]=useState(false);
+  const[lotDone,setLotDone]=useState(false);
+  const[activeGm,setActiveGm]=useState(0);
+  const[loaded,setLoaded]=useState(false);
+  const[dataReady,setDataReady]=useState(false);
+  const[saveStatus,setSaveStatus]=useState("");
+
+
+  // Load players.json first, then saved state
+  useEffect(()=>{
+    let done=false;
+    (async()=>{
+      try{
+        await loadPlayersData();
+        setDataReady(true);
+        // reset order now that real data is loaded
+        setOrder(getDefaultOrder());
+      }catch(e){ console.error('Failed to load players.json:',e); setDataReady(true); }
+      try{
+        const saved=await loadState();
+        if(saved&&!done){
+          if(saved.order) setOrder(saved.order);
+          if(saved.picks) setPicks(saved.picks);
+          if(saved.lotDone!==undefined) setLotDone(saved.lotDone);
+          if(saved.activeGm!==undefined&&saved.activeGm!==null) setActiveGm(saved.activeGm);
+        }
+      }catch(e){}
+      done=true;
+      setLoaded(true);
+    })();
+    setTimeout(()=>{if(!done){done=true;setLoaded(true);setDataReady(true);}},2000);
+  },[]);
+
+  // Auto-save on changes
+  useEffect(()=>{
+    if(!loaded) return;
+    const t=setTimeout(()=>{
+      saveState({order,picks,lotDone,activeGm}).then(ok=>{
+        if(ok){setSaveStatus("saved");setTimeout(()=>setSaveStatus(""),1500);}
+      });
+    },300);
+    return()=>clearTimeout(t);
+  },[order,picks,lotDone,activeGm,loaded]);
+
+  const mkPick=(gi,pn,pid)=>setPicks(pr=>({...pr,[gi]:{...pr[gi],[pn]:pid}}));
+  const clPick=(gi,pn)=>setPicks(pr=>{const c={...pr[gi]};delete c[pn];return{...pr,[gi]:c}});
+  const totPicks=Object.keys(picks[0]||{}).length;
+
+  const fullReset=()=>{
+    setOrder(getDefaultOrder());setLotDone(false);setPicks({0:{}});clearSavedState();
+  };
+
+  if(!loaded||!dataReady){
+    return(
+      <div style={{minHeight:"100vh",background:"#f5f5f5",color:"#333",fontFamily:"'Courier New',monospace",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:19,color:"#999",letterSpacing:3,marginBottom:8}}>LOADING DRAFT...</div>
+          <div style={{width:50,height:50,border:"3px solid #ddd",borderTopColor:"#e63946",borderRadius:"50%",margin:"0 auto",animation:"spin 0.8s linear infinite"}}/>
+        </div>
+        <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}} @keyframes counterspin{0%{transform:rotate(0deg)}100%{transform:rotate(-360deg)}}`}</style>
+      </div>
+    );
+  }
+
+  if(activeGm===null){
+    return(
+      <div style={{minHeight:"100vh",background:"#f5f5f5",color:"#333",fontFamily:"'Courier New',monospace",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{letterSpacing:5,fontSize:15,color:"#999",marginBottom:4}}>2026 NHL</div>
+        <h1 style={{fontSize:"clamp(32px,7vw,56px)",fontWeight:900,marginBottom:6,background:"linear-gradient(135deg,#222,#666)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>MOCK DRAFT</h1>
+        <p style={{color:"#999",fontSize:16,marginBottom:38,letterSpacing:2}}>PICK YOUR GM TO START DRAFTING</p>
+        {totPicks>0&&<div style={{background:"rgba(184,134,11,0.08)",border:"1px solid rgba(184,134,11,0.2)",borderRadius:6,padding:"8px 16px",marginBottom:30,textAlign:"center"}}>
+          <span style={{fontSize:15,color:"#b8860b",letterSpacing:1}}>📋 SAVED DRAFT FOUND — {totPicks} picks made</span>
+        </div>}
+        <div style={{display:"flex",gap:26,flexWrap:"wrap",justifyContent:"center"}}>
+          {GC.filter(c=>!c.auto).map(cfg=>{
+            const gPicks=Object.keys(picks[cfg.id]||{}).length;
+            return(
+              <button key={cfg.id} onClick={()=>setActiveGm(cfg.id)} style={{background:"#fff",border:`2px solid ${cfg.color}`,borderRadius:12,padding:"24px 44px",cursor:"pointer",transition:"all 0.2s",display:"flex",flexDirection:"column",alignItems:"center",gap:8,minWidth:130,fontFamily:"inherit",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}
+                onMouseEnter={e=>e.currentTarget.style.background=cfg.bg} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                <div style={{width:56,height:56,borderRadius:"50%",background:cfg.hdr,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <span style={{fontSize:26,fontWeight:900,color:"#fff"}}>{cfg.name[0]}</span>
+                </div>
+                <span style={{fontSize:22,fontWeight:900,color:cfg.accent,letterSpacing:2}}>{cfg.name.toUpperCase()}</span>
+                {gPicks>0&&<span style={{fontSize:13,color:"#999"}}>{gPicks}/32 picks</span>}
+              </button>
+            );
+          })}
+        </div>
+        {totPicks>0&&<button onClick={fullReset} style={{marginTop:20,background:"rgba(230,57,70,0.06)",border:"1px solid rgba(230,57,70,0.2)",color:"#e63946",padding:"6px 16px",borderRadius:4,fontSize:14,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>🗑 CLEAR SAVED DRAFT & START FRESH</button>}
+        <p style={{color:"#ccc",fontSize:14,marginTop:24,letterSpacing:2}}>YOUR PICKS AUTO-SAVE · COME BACK ANYTIME</p>
+        <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}} @keyframes counterspin{0%{transform:rotate(0deg)}100%{transform:rotate(-360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+      </div>
+    );
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:"#f5f5f5",color:"#333",fontFamily:"'Courier New',monospace"}}>
+      {showLot&&<LotteryModal onClose={()=>setShowLot(false)} onComplete={r=>{setOrder(r);setLotDone(true);setPicks({0:{}});setShowLot(false)}}/>}
+      <div style={{position:"relative",zIndex:1,maxWidth:1500,margin:"0 auto",padding:"12px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,flexWrap:"wrap",gap:5}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <h1 style={{fontSize:"clamp(18px,3vw,28px)",fontWeight:900,margin:0,background:"linear-gradient(135deg,#222,#666)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>2026 NHL MOCK DRAFT</h1>
+            {lotDone&&<span style={{fontSize:13,color:"#b8860b",letterSpacing:1}}>★ LOTTERY</span>}
+            <span style={{fontSize:12,color:"#bbb",letterSpacing:1}}>Updated {LAST_UPDATED}</span>
+            <span style={{fontSize:13,color:GC[activeGm].accent,letterSpacing:1,background:GC[activeGm].bg,padding:"4px 10px",borderRadius:3,border:`1px solid ${GC[activeGm].color}22`}}>Playing as {GC[activeGm].name}</span>
+            {saveStatus&&<span style={{fontSize:12,color:"#16a34a",letterSpacing:1,transition:"opacity 0.3s"}}>✓ SAVED</span>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,color:"#999"}}>{totPicks}/32</span>
+            <button onClick={()=>setShowLot(true)} style={{background:"linear-gradient(135deg,rgba(184,134,11,0.1),rgba(230,81,0,0.1))",border:"1px solid rgba(184,134,11,0.3)",color:"#b8860b",padding:"8px 16px",borderRadius:3,fontSize:13,cursor:"pointer",fontFamily:"inherit",letterSpacing:1,fontWeight:700}}>🎱 LOTTERY</button>
+            <button onClick={()=>setPicks({0:{}})} style={{background:"#fff",border:"1px solid #ddd",color:"#888",padding:"8px 16px",borderRadius:3,fontSize:13,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>↩ CLEAR</button>
+            <button onClick={fullReset} style={{background:"rgba(230,57,70,0.06)",border:"1px solid rgba(230,57,70,0.2)",color:"#e63946",padding:"8px 16px",borderRadius:3,fontSize:13,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>⟳ RESET</button>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:7,height:"calc(100vh - 52px)",minHeight:500,maxWidth:800,margin:"0 auto"}}>
+          {[0].map(i=><GMPanel key={i} gi={i} order={order} allPicks={picks} onPick={mkPick} onClear={clPick} activeGm={activeGm}/>)}
+        </div>
+      </div>
+      <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}} @keyframes counterspin{0%{transform:rotate(0deg)}100%{transform:rotate(-360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
